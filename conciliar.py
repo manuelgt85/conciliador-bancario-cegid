@@ -264,7 +264,7 @@ R_EXCEPCIONES = [
      'Gasto representacion'),
 ]
 
-SOCIOS = ['HUGO','BENITEZ','ELIO']  # adaptar por cliente
+SOCIOS = []  # adaptar por cliente: apellidos/nombres de socios y administradores
 
 def extraer_proveedor(obs):
     obs = re.sub(r'\*+\d{4}\s*','', str(obs))
