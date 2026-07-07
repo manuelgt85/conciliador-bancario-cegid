@@ -229,14 +229,17 @@ def match_lm(beneficiario, observaciones, concepto, terceros):
 
 # ── REGLAS DE CLASIFICACIÓN ───────────────────────────────────────────────────
 R_OBS = [
-    # Nóminas (con mes o con "pago/adelanto nomina")
-    (r'NOMIN[A-Z]*\s+(ENERO|FEBRERO|MARZO|ABRIL|MAYO|JUNIO|JULIO|AGOSTO|SEPTIEMBRE|OCTUBRE|NOVIEMBRE|DICIEMBRE)',
+    # Nóminas: permitir texto entre NOMINA y el mes (Task 5)
+    (r'NOMIN[A-Z]*\b.{0,25}(ENERO|FEBRERO|MARZO|ABRIL|MAYO|JUNIO|JULIO|AGOSTO|SEPTIEMBRE|OCTUBRE|NOVIEMBRE|DICIEMBRE)',
      '46500000','REMUNERACIONES PENDIENTES DE PAGO','ALTA'),
     (r'(PAGO|ADELANTO|ANTICIPO)\s+.{0,10}NOMIN|NOMIN.{0,10}(PAGO|ADELANTO|ANTICIPO)',
      '46500000','REMUNERACIONES PENDIENTES DE PAGO','ALTA'),
-    # Cotización SS
-    (r'TGSS|TESORERIA\s+GENERAL\s+SS|COTIZACION\s+SS|CUOTA\s+SS|SEG\.?\s*SOCIAL',
+    # Cotización SS: aceptar 'SEGURID' truncado (Task 5)
+    (r'TGSS|TESORERIA\s+GENERAL.{0,20}SEGURID|COTIZACION\s+SS|CUOTA\s+SS|SEG\.?\s*SOCIAL',
      '47600000','ORGANISMOS SEGURIDAD SOCIAL, ACREEDORES','ALTA'),
+    # TPV / liquidación remesa de comercios (cuenta destino por criterios) (Task 5)
+    (r'LIQUIDACI[OO]N\s+REMESA\s+DE\s+COMERCIOS',
+     '43000000','VENTAS TPV (segun cliente)','MEDIA'),
     # Préstamos / devoluciones socios
     (r'PRESTAMO\s+DE\s+SOC|PR[EE]STAMO\s+SOC',
      '55100000','C/C SOCIOS Y ADMINISTRADORES','ALTA'),
@@ -333,6 +336,11 @@ def clasificar_fila(row, terceros, criterios=None):
     # 2. Observaciones inequívocas (ANTES que socios)
     for pat, cta, desc, conf in R_OBS:
         if re.search(pat, texto_obs, re.IGNORECASE):
+            # overrides por criterios de cliente (Task 5)
+            if cta == '43000000' and criterios.get('cuenta_ventas_tpv'):
+                cta = criterios['cuenta_ventas_tpv']
+            if cta == '41000001' and criterios.get('cuenta_prl'):
+                cta = criterios['cuenta_prl']
             fuente = obs_r.strip() or conc[:50]
             return cta, desc, conf, f"Detectado en: «{fuente}»", 'REGLA_OBS'
     # 2b. Ingreso en efectivo → 551
@@ -559,6 +567,12 @@ def _self_check():
     _r = clasificar_fila(fila(benef='PROV RARO', imp=-125.84), {'40000001': 'A', '40000002': 'B'})
     assert _r[4] != 'MATCH_IMPORTE'   # ambiguo → no adivina
     init_importes_lm({})              # limpiar para no afectar otros asserts
+    # Task 5: TPV usa cuenta de criterios; nómina con texto intermedio; SS truncada
+    _r = clasificar_fila(fila(conc='LIQUIDACION REMESA DE COMERCIOS', imp=1500.0),
+                         {}, {'cuenta_ventas_tpv': '70500000'})
+    assert _r[0] == '70500000'
+    assert clasificar_fila(fila(obs='NOMINA LIQUIDACION DE JUNIO 2025'), {})[0] == '46500000'
+    assert clasificar_fila(fila(obs='TESORERIA GENERAL DE LA SEGURID'), {})[0] == '47600000'
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
