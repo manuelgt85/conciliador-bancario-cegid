@@ -157,6 +157,22 @@ def cargar_pgc(path):
     wb.close()
     return pgc
 
+def cargar_criterios(carpeta):
+    """Lee el primer criterios*.json de la carpeta. {} si no hay."""
+    import glob
+    try:
+        matches = sorted(glob.glob(os.path.join(carpeta, 'criterios*.json')))
+    except Exception:
+        return {}
+    if not matches:
+        return {}
+    try:
+        with open(matches[0], encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"criterios.json ilegible: {e}")
+        return {}
+
 # ── MATCHING LIBRO MAYOR ──────────────────────────────────────────────────────
 STOPWORDS = {'de','del','la','el','los','las','y','e','a','en','sl','slu','sa',
              'sau','ltd','srl','slp','sucursal','espana','spain','iberia',
@@ -276,7 +292,8 @@ def extraer_proveedor(obs):
     obs = re.sub(r'\d{16}\s*','', obs).strip()
     return obs[:50] if len(obs)>3 else ''
 
-def clasificar_fila(row, terceros):
+def clasificar_fila(row, terceros, criterios=None):
+    criterios = criterios or {}
     conc   = str(row['CONCEPTO']).upper()
     obs    = str(row['OBSERVACIONES']).upper()
     obs_r  = str(row['OBSERVACIONES'])
@@ -284,6 +301,12 @@ def clasificar_fila(row, terceros):
     benef_r= str(row['BENEFICIARIO'])
     imp    = float(row['IMPORTE'])
     texto_obs = f"{obs} {conc}"
+    # 0. Alias marca→cuenta (criterios por cliente): gana a todo lo demás
+    texto_alias = f"{conc} {obs} {benef}"
+    for marca, cuenta in (criterios.get('alias_terceros') or {}).items():
+        if marca.upper() in texto_alias:
+            nom = terceros.get(cuenta, '')
+            return cuenta, nom, 'ALTA', f"Alias criterios: «{marca}» → {cuenta}", 'ALIAS'
     # 1. Empresa propia
     # NOTA: actualizar con el nombre/CIF de la empresa del cliente
     # 2. Observaciones inequívocas (ANTES que socios)
@@ -325,11 +348,11 @@ def clasificar_fila(row, terceros):
     return '41000000','ACREEDORES POR PRESTACIONES DE SERVICIOS','BAJA',\
            f'Sin proveedor en LM — crear tercero | {prov}', 'ACREEDOR_GENERICO'
 
-def conciliar(df, terceros, pgc, api_key='', lote=30):
+def conciliar(df, terceros, pgc, criterios=None, api_key='', lote=30):
     init_cache_lm(terceros)
     resultados = []
     for idx, row in df.iterrows():
-        cta, desc, conf, just, met = clasificar_fila(row, terceros)
+        cta, desc, conf, just, met = clasificar_fila(row, terceros, criterios)
         resultados.append({
             'idx': idx, 'CUENTA': cta, 'DESCRIPCION': desc,
             'CONFIANZA': conf, 'JUSTIFICACION': just, 'METODO': met
@@ -494,6 +517,13 @@ def _self_check():
     # Task 2: toks separa camelCase/pegados
     assert "CLIENTES" in toks("TotalEnergiesClientesSAU")
     assert "ENERGIES" in toks("TotalEnergiesClientesSAU")
+    # Task 3: alias de criterios gana al matcher por nombre
+    _crit = {'alias_terceros': {'FACEBK': '41000008'}}
+    _r = clasificar_fila(fila(obs='PAGO FACEBK ADS'), {}, _crit)
+    assert _r[0] == '41000008' and _r[4] == 'ALIAS', f"Expected ('41000008', ..., 'ALIAS'), got {_r}"
+    # cargar_criterios devuelve {} si no hay fichero
+    _tmp_dir = tempfile.gettempdir() + '/no_existe_dir_xyz'
+    assert cargar_criterios(_tmp_dir) == {}, f"Expected {{}}, got {cargar_criterios(_tmp_dir)}"
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
@@ -515,7 +545,7 @@ if __name__ == '__main__':
         pgc = cargar_pgc(PGC_PATH)
         print(f"  {len(pgc)} cuentas")
         print("Clasificando...")
-        res = conciliar(df, terceros, pgc, API_KEY)
+        res = conciliar(df, terceros, pgc, None, API_KEY)
         print("Generando Excel...")
         generar_excel(df, res, EXTRACTO_PATH, OUTPUT_PATH)
         total = len(res)
