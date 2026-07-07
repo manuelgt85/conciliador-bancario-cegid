@@ -1,0 +1,4 @@
+openpyxl
+pandas
+python-dateutil
+# anthropic  # opcional: solo si se define API_KEY para refinar acreedores genéricos

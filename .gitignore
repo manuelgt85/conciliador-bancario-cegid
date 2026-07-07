@@ -1,0 +1,22 @@
+# Seguridad: NUNCA subir documentación de clientes.
+# Extractos bancarios, libro mayor y plan de cuentas son .xlsx/.xls/.csv;
+# el fichero conciliado de salida también.
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.png
+*.jpg
+*.jpeg
+
+# Carpetas donde se dejan los ficheros de cada empresa al conciliar.
+datos/
+clientes/
+*/entrada/
+*/salida/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
