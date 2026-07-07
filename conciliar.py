@@ -131,17 +131,26 @@ def cargar_lm(path):
     wb = load_workbook(path, read_only=True, data_only=True)
     ws = wb[wb.sheetnames[0]]
     terceros = {}
-    cod, nom = None, None
+    importes = {}
+    cod = None
     for row in ws.iter_rows(min_row=5, values_only=True):
         a = str(row[0]).strip() if row[0] else ''
         b = row[1]
         if a and b is None and a not in ['','None']:
             if not any(x in a for x in ['Saldo','Total','periodo','ejercicio']):
-                p = a.split(' ',1); cod = p[0].strip()
+                p = a.split(' ',1); c = p[0].strip()
                 nom = p[1].strip() if len(p)>1 else a
-                if cod[:2] in ('40','41','43'):
-                    terceros[cod] = nom
+                if c[:2] in ('40','41','43'):
+                    cod = c; terceros[cod] = nom; importes.setdefault(cod, set())
+                else:
+                    cod = None
+        elif cod:
+            # fila de apunte del tercero actual: guardar importes numéricos > 0
+            for cell in row[1:]:
+                if isinstance(cell, (int, float)) and abs(cell) > 0:
+                    importes[cod].add(round(abs(float(cell)), 2))
     wb.close()
+    init_importes_lm(importes)
     return terceros
 
 def cargar_pgc(path):
@@ -191,6 +200,18 @@ _cache_lm = {}
 def init_cache_lm(terceros):
     global _cache_lm
     _cache_lm = {cod: toks(nom) for cod, nom in terceros.items()}
+
+_importes_lm = {}
+def init_importes_lm(mapa):
+    global _importes_lm
+    _importes_lm = {c: {round(abs(x), 2) for x in s} for c, s in mapa.items()}
+
+def match_importe(imp):
+    """Devuelve el cod de tercero cuyo LM tiene un apunte del mismo importe, si es único."""
+    objetivo = round(abs(float(imp)), 2)
+    candidatos = [c for c, s in _importes_lm.items()
+                  if any(abs(v - objetivo) <= 0.02 for v in s)]
+    return candidatos[0] if len(candidatos) == 1 else None
 
 def match_lm(beneficiario, observaciones, concepto, terceros):
     mejor, bcod, bnom, bcampo = 0.0, None, None, ''
@@ -334,6 +355,12 @@ def clasificar_fila(row, terceros, criterios=None):
         conf = 'ALTA' if score >= 0.7 else 'MEDIA'
         return cod_lm, nom_lm, conf, \
                f"Match LM ({campo}): «{nom_lm}» score {score:.2f}", 'LIBRO_MAYOR'
+    # 4b. Match por importe contra el LM (solo si criterios no lo desactiva)
+    if criterios.get('match_por_importe', True):
+        cod_imp = match_importe(imp)
+        if cod_imp:
+            return cod_imp, terceros.get(cod_imp, ''), 'ALTA', \
+                   f"Match por importe: {abs(imp):.2f} → {cod_imp}", 'MATCH_IMPORTE'
     # 5. Excepciones al 41000000
     texto = f"{conc} {obs} {benef}"
     for pat, cta, desc, conf, just in R_EXCEPCIONES:
@@ -524,6 +551,14 @@ def _self_check():
     # cargar_criterios devuelve {} si no hay fichero
     _tmp_dir = tempfile.gettempdir() + '/no_existe_dir_xyz'
     assert cargar_criterios(_tmp_dir) == {}, f"Expected {{}}, got {cargar_criterios(_tmp_dir)}"
+    # Task 4: match por importe único → ALTA; múltiple → no asigna
+    init_importes_lm({'40000001': {125.84}, '40000002': {99.0}})
+    _r = clasificar_fila(fila(benef='PROV RARO', imp=-125.84), {'40000001': 'FLOCCUS'})
+    assert _r[0] == '40000001' and _r[4] == 'MATCH_IMPORTE'
+    init_importes_lm({'40000001': {125.84}, '40000002': {125.84}})
+    _r = clasificar_fila(fila(benef='PROV RARO', imp=-125.84), {'40000001': 'A', '40000002': 'B'})
+    assert _r[4] != 'MATCH_IMPORTE'   # ambiguo → no adivina
+    init_importes_lm({})              # limpiar para no afectar otros asserts
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
