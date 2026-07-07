@@ -151,6 +151,9 @@ def cargar_pgc(path):
     for row in ws.iter_rows(min_row=6, values_only=True):
         if row[4] and row[9]:
             pgc[str(row[4]).strip()] = str(row[9]).strip()
+        # Task 1: indexar también la subcuenta de 8 dígitos (columna 8)
+        if len(row) > 8 and row[8] and row[9]:
+            pgc[str(row[8]).strip()] = str(row[9]).strip()
     wb.close()
     return pgc
 
@@ -475,6 +478,17 @@ def _self_check():
     assert clasificar_fila(fila(benef='PROVEEDOR DESCONOCIDO SL'), {})[0] == '41000000'
     # Regla de oro: abono de comisión → ingreso, no gasto
     assert clasificar_fila(fila(conc='COMISION MANTENIMIENTO CUENTA', imp=5.0), {})[0] == '76900000'
+    # Task 1: cargar_pgc indexa por 3 y por 8 dígitos
+    from openpyxl import Workbook as _WB
+    import tempfile, os as _os
+    _wb = _WB(); _ws = _wb.create_sheet("Datos"); del _wb[_wb.sheetnames[0]]
+    # fila 6 en adelante: col índice 4 = código 3 díg, col 8 = subcuenta 8 díg, col 9 = nombre
+    for _ in range(5): _ws.append([])
+    _ws.append([None,None,None,None,"572",None,None,None,"57200000","BANCOS"])
+    _tmp = _os.path.join(tempfile.gettempdir(), "_pgc_test.xlsx"); _wb.save(_tmp)
+    _pgc = cargar_pgc(_tmp); _os.remove(_tmp)
+    assert _pgc.get("572") == "BANCOS"
+    assert _pgc.get("57200000") == "BANCOS"
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
