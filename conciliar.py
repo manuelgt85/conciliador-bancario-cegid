@@ -166,6 +166,8 @@ def toks(t):
     if not t: return set()
     import unicodedata
     t = unicodedata.normalize('NFD', str(t)).encode('ascii','ignore').decode('ascii')
+    # Task 2: separar minúscula→MAYÚSCULA pegadas (camelCase) antes de subir todo a mayúsculas
+    t = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', t)
     t = re.sub(r'[^A-Z0-9\s]',' ', t.upper())
     return {x for x in t.split() if len(x)>2 and x.lower() not in STOPWORDS}
 
@@ -489,6 +491,9 @@ def _self_check():
     _pgc = cargar_pgc(_tmp); _os.remove(_tmp)
     assert _pgc.get("572") == "BANCOS"
     assert _pgc.get("57200000") == "BANCOS"
+    # Task 2: toks separa camelCase/pegados
+    assert "CLIENTES" in toks("TotalEnergiesClientesSAU")
+    assert "ENERGIES" in toks("TotalEnergiesClientesSAU")
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
