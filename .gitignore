@@ -9,6 +9,9 @@
 *.jpg
 *.jpeg
 
+# Criterios por cliente: llevan nombres y cuentas de clientes, nunca al repo.
+criterios*.json
+
 # Carpetas donde se dejan los ficheros de cada empresa al conciliar.
 datos/
 clientes/
