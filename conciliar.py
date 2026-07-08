@@ -537,6 +537,19 @@ def validar_saldo(df):
             roturas.append(i)
     return roturas
 
+def _hoja_cegid(wb, df, resultados):
+    if 'CEGID' in wb.sheetnames: del wb['CEGID']
+    cg = wb.create_sheet('CEGID')
+    cg.append(['Fecha', 'Concepto', 'Importe', 'Contrapartida'])
+    res_map = {r['idx']: r for r in resultados}
+    for idx in range(len(df)):
+        r = res_map.get(idx)
+        if not r: continue
+        row = df.iloc[idx]
+        cg.append([row['F_CONTABLE'], row['CONCEPTO'], row['IMPORTE'], r['CUENTA']])
+    for col, w in zip('ABCD', (14, 50, 14, 16)):
+        cg.column_dimensions[col].width = w
+
 def generar_excel(df, resultados, extracto_path, output_path):
     # Intentar cargar el original; si falla, crear nuevo
     try:
@@ -621,6 +634,7 @@ def generar_excel(df, resultados, extracto_path, output_path):
                        row['OBSERVACIONES'],row['IMPORTE'],
                        r['CUENTA'],r['DESCRIPCION'],r['CONFIANZA'],r['JUSTIFICACION']])
     for col in 'ABCDEFGHI': rv.column_dimensions[col].width = 26
+    _hoja_cegid(wb, df, resultados)
     wb.save(output_path)
     print(f"Guardado: {output_path}")
 
@@ -707,6 +721,17 @@ def _self_check():
     assert _movs[0]['IMPORTE'] == -1200.0 and _movs[0]['BENEFICIARIO'] == 'JUAN PEREZ'
     assert _movs[0]['CONCEPTO'] == 'PAGO NOMINA'
     assert _movs[1]['IMPORTE'] == -45.2 and _movs[1]['CONCEPTO'] == 'COMPRA TARJETA'
+    # Task 9: hoja CEGID con 4 columnas exactas
+    from openpyxl import Workbook as _WB2
+    _wb2 = _WB2()
+    _df2 = pd.DataFrame([{'F_CONTABLE':'05/06/2025','CONCEPTO':'PAGO','IMPORTE':-10.0,
+                          'BENEFICIARIO':'','OBSERVACIONES':'','SALDO':0.0}])
+    _res2 = [{'idx':0,'CUENTA':'41000001','DESCRIPCION':'','CONFIANZA':'ALTA',
+              'JUSTIFICACION':'','METODO':'x'}]
+    _hoja_cegid(_wb2, _df2, _res2)
+    _ws2 = _wb2['CEGID']
+    assert [c.value for c in _ws2[1]] == ['Fecha','Concepto','Importe','Contrapartida']
+    assert [c.value for c in _ws2[2]] == ['05/06/2025','PAGO',-10.0,'41000001']
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
