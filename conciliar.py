@@ -537,6 +537,59 @@ def validar_saldo(df):
             roturas.append(i)
     return roturas
 
+def siguiente_codigo_libre(terceros, bloque):
+    """bloque: '400'|'410'|'430'. Siguiente subcuenta de 8 díg libre en ese bloque."""
+    usados = [int(c) for c in terceros
+              if c.isdigit() and len(c) == 8 and c.startswith(bloque)]
+    base = int(bloque + '00000')  # p.ej. 40000000
+    return str((max(usados) + 1) if usados else base + 1)
+
+def detectar_acciones(df, resultados, terceros, pgc):
+    """Terceros a crear (genéricos agrupados), subcuentas inexistentes y avisos."""
+    pgc = pgc or {}
+    acc = {'terceros_crear': [], 'subcuentas_crear': [], 'avisos': []}
+    # 1) terceros a crear: agrupar los ACREEDOR_GENERICO por nombre normalizado
+    grupos = {}
+    for r in resultados:
+        if r['METODO'] != 'ACREEDOR_GENERICO':
+            continue
+        row = df.iloc[r['idx']]
+        nombre = (str(row['BENEFICIARIO']).strip() or str(row['OBSERVACIONES']).strip()
+                  or str(row['CONCEPTO']).strip())[:50]
+        clave = ' '.join(sorted(toks(nombre))) or nombre.upper()
+        grupos.setdefault(clave, {'nombre': nombre, 'n': 0, 'importe': 0.0})
+        grupos[clave]['n'] += 1
+        grupos[clave]['importe'] += float(row['IMPORTE'])
+    reservados = dict(terceros)
+    for g in grupos.values():
+        bloque = '410' if g['importe'] < 0 else '430'  # pagos→acreedor, cobros→cliente
+        cod = siguiente_codigo_libre(reservados, bloque)
+        reservados[cod] = g['nombre']
+        acc['terceros_crear'].append({
+            'codigo': cod, 'nombre': g['nombre'],
+            'tipo': 'acreedor' if bloque == '410' else 'cliente',
+            'nif': '(pendiente)', 'n_movimientos': g['n']})
+    # 2) subcuentas de contrapartida que no existen en el plan
+    vistos = set()
+    for r in resultados:
+        cta = r['CUENTA']
+        if cta in ('PENDIENTE',) or not str(cta).isdigit():
+            continue
+        if cta in vistos or cta in pgc:
+            continue
+        vistos.add(cta)
+        acc['subcuentas_crear'].append({'codigo': cta, 'nombre': r['DESCRIPCION']})
+    # 3) avisos: movimientos sin nombre/NIF y roturas de saldo
+    for r in resultados:
+        row = df.iloc[r['idx']]
+        if r['METODO'] == 'ACREEDOR_GENERICO' and not str(row['BENEFICIARIO']).strip() \
+           and not str(row['OBSERVACIONES']).strip():
+            acc['avisos'].append({'idx': r['idx'], 'motivo': 'Sin beneficiario ni observaciones',
+                                  'importe': float(row['IMPORTE'])})
+    for i in validar_saldo(df):
+        acc['avisos'].append({'idx': i, 'motivo': 'Posible rotura de saldo', 'importe': None})
+    return acc
+
 def _hoja_cegid(wb, df, resultados):
     if 'CEGID' in wb.sheetnames: del wb['CEGID']
     cg = wb.create_sheet('CEGID')
@@ -732,6 +785,19 @@ def _self_check():
     _ws2 = _wb2['CEGID']
     assert [c.value for c in _ws2[1]] == ['Fecha','Concepto','Importe','Contrapartida']
     assert [c.value for c in _ws2[2]] == ['05/06/2025','PAGO',-10.0,'41000001']
+    # Task 10: siguiente código libre por bloque
+    assert siguiente_codigo_libre({'40000001':'A','40000005':'B'}, '400') == '40000006'
+    assert siguiente_codigo_libre({}, '410') == '41000001'
+    # detectar_acciones agrupa genéricos y propone código; detecta subcuenta inexistente
+    _df3 = pd.DataFrame([
+        {'F_CONTABLE':'01/06/2025','CONCEPTO':'PAGO','BENEFICIARIO':'FERRETERIA LOPEZ',
+         'OBSERVACIONES':'FERRETERIA LOPEZ','IMPORTE':-80.0,'SALDO':0.0},
+    ])
+    _res3 = [{'idx':0,'CUENTA':'41000000','DESCRIPCION':'','CONFIANZA':'BAJA',
+              'JUSTIFICACION':'','METODO':'ACREEDOR_GENERICO'}]
+    _acc = detectar_acciones(_df3, _res3, {}, {})
+    assert len(_acc['terceros_crear']) == 1
+    assert _acc['terceros_crear'][0]['codigo'] == '41000001'
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
