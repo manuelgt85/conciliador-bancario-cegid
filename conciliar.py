@@ -24,6 +24,7 @@ OUTPUT_PATH   = "conciliado.xlsx"   # fichero de salida
 API_KEY       = ""                  # API key Anthropic (opcional)
 FECHA_DESDE   = None                # "2026-01-01" o None para todo
 FECHA_HASTA   = None                # "2026-03-31" o None para todo
+CARPETA_MADRE = None                # carpeta con subcarpetas por empresa (modo lote) o None
 
 # ── DETECCIÓN AUTOMÁTICA DE FORMATO ──────────────────────────────────────────
 _KW = {
@@ -794,6 +795,24 @@ def procesar_lote(carpeta_madre):
     generar_informe(carpeta_madre, resumen)
     return resumen
 
+def dudas_alto_impacto(df, resultados, top=15, min_repeticiones=3):
+    """REVISAR/BAJA de alto impacto: top por |importe| ∪ conceptos recurrentes."""
+    dudosos = [r for r in resultados if r['CONFIANZA'] in ('REVISAR', 'BAJA')]
+    def imp(r): return abs(float(df.iloc[r['idx']]['IMPORTE']))
+    por_importe = sorted(dudosos, key=imp, reverse=True)[:top]
+    from collections import Counter
+    claves = Counter(str(df.iloc[r['idx']]['CONCEPTO']).upper().strip() for r in dudosos)
+    recurrentes = [r for r in dudosos
+                   if claves[str(df.iloc[r['idx']]['CONCEPTO']).upper().strip()] >= min_repeticiones]
+    seleccion, vistos = [], set()
+    for r in por_importe + recurrentes:
+        if r['idx'] in vistos: continue
+        vistos.add(r['idx'])
+        row = df.iloc[r['idx']]
+        seleccion.append({'idx': r['idx'], 'concepto': row['CONCEPTO'],
+                          'importe': float(row['IMPORTE']), 'cuenta_propuesta': r['CUENTA']})
+    return seleccion
+
 # ── SELF-CHECK (verificación de instalación, sin ficheros) ────────────────────
 def _self_check():
     # Parser de importes: formatos español, US y negativos
@@ -927,13 +946,24 @@ def _self_check():
     _txt = open(_ruta, encoding='utf-8').read()
     assert 'AMAYA' in _txt and '80.0' in _txt
     _os.remove(_ruta)
+    # Task 14: dudas de alto impacto (por importe y por recurrencia)
+    _rows = [{'F_CONTABLE':'','CONCEPTO':f'C{i}','BENEFICIARIO':'','OBSERVACIONES':'',
+              'IMPORTE':-(i+1)*100.0,'SALDO':0.0} for i in range(20)]
+    _df14 = pd.DataFrame(_rows)
+    _res14 = [{'idx':i,'CUENTA':'41000000','DESCRIPCION':'','CONFIANZA':'REVISAR',
+               'JUSTIFICACION':'','METODO':'x'} for i in range(20)]
+    _dudas = dudas_alto_impacto(_df14, _res14, top=5)
+    assert len(_dudas) == 5
+    assert _dudas[0]['idx'] == 19          # el de mayor importe primero
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     from datetime import date as _date
-    # Sin los tres ficheros presentes → self-check (verificación de instalación).
-    if not all(os.path.exists(p) for p in (EXTRACTO_PATH, LM_PATH, PGC_PATH)):
+    # Modo lote si CARPETA_MADRE apunta a una carpeta; si no, una empresa; si faltan ficheros, self-check.
+    if CARPETA_MADRE and os.path.isdir(CARPETA_MADRE):
+        procesar_lote(CARPETA_MADRE)
+    elif not all(os.path.exists(p) for p in (EXTRACTO_PATH, LM_PATH, PGC_PATH)):
         _self_check()
     else:
         fd = _date.fromisoformat(FECHA_DESDE) if FECHA_DESDE else None
