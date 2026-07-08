@@ -429,8 +429,42 @@ def conciliar(df, terceros, pgc, criterios=None, api_key='', lote=30):
                     if i+lote < len(pendientes): time.sleep(0.3)
         except Exception as e:
             print(f"Claude API: {e}")
+    marcar_retrocesiones(df, resultados)
     resultados.sort(key=lambda x: x['idx'])
     return resultados
+
+def marcar_retrocesiones(df, resultados):
+    """Empareja movimientos de importe opuesto y fecha próxima → 555 (netean a 0)."""
+    from datetime import datetime as _dt
+    def _fecha(s):
+        for fmt in ('%d/%m/%Y', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try: return _dt.strptime(str(s).strip()[:19], fmt)
+            except Exception: pass
+        return None
+    res_map = {r['idx']: r for r in resultados}
+    usados = set()
+    filas = list(df.iterrows())
+    for a in range(len(filas)):
+        ia, ra = filas[a]
+        if ia in usados: continue
+        fa = _fecha(ra['F_CONTABLE']); impa = round(float(ra['IMPORTE']), 2)
+        if impa == 0: continue
+        for b in range(a+1, len(filas)):
+            ib, rb = filas[b]
+            if ib in usados: continue
+            if round(float(rb['IMPORTE']), 2) != -impa: continue
+            fb = _fecha(rb['F_CONTABLE'])
+            if fa and fb and abs((fb - fa).days) > 5: continue
+            for idx in (ia, ib):
+                r = res_map.get(idx)
+                if r:
+                    r.update({'CUENTA':'55500000',
+                              'DESCRIPCION':'PARTIDAS PENDIENTES DE APLICACION',
+                              'CONFIANZA':'MEDIA',
+                              'JUSTIFICACION':'Par +/- retrocedido (netea a 0)',
+                              'METODO':'RETROCESION'})
+            usados.add(ia); usados.add(ib)
+            break
 
 def generar_excel(df, resultados, extracto_path, output_path):
     # Intentar cargar el original; si falla, crear nuevo
@@ -573,6 +607,17 @@ def _self_check():
     assert _r[0] == '70500000'
     assert clasificar_fila(fila(obs='NOMINA LIQUIDACION DE JUNIO 2025'), {})[0] == '46500000'
     assert clasificar_fila(fila(obs='TESORERIA GENERAL DE LA SEGURID'), {})[0] == '47600000'
+    # Task 6: par +/- retrocedido → 555
+    _df = pd.DataFrame([
+        {'F_CONTABLE':'01/03/2025','F_VALOR':'','CODIGO':'','CONCEPTO':'CONFIRMING',
+         'BENEFICIARIO':'','OBSERVACIONES':'','IMPORTE':300.0,'SALDO':0.0},
+        {'F_CONTABLE':'02/03/2025','F_VALOR':'','CODIGO':'','CONCEPTO':'RETROCESION CONFIRMING',
+         'BENEFICIARIO':'','OBSERVACIONES':'','IMPORTE':-300.0,'SALDO':0.0},
+    ])
+    _res = [{'idx':0,'CUENTA':'X','DESCRIPCION':'','CONFIANZA':'BAJA','JUSTIFICACION':'','METODO':'x'},
+            {'idx':1,'CUENTA':'Y','DESCRIPCION':'','CONFIANZA':'BAJA','JUSTIFICACION':'','METODO':'y'}]
+    marcar_retrocesiones(_df, _res)
+    assert _res[0]['CUENTA'] == '55500000' and _res[1]['CUENTA'] == '55500000'
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
