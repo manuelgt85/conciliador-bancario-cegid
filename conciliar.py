@@ -590,6 +590,28 @@ def detectar_acciones(df, resultados, terceros, pgc):
         acc['avisos'].append({'idx': i, 'motivo': 'Posible rotura de saldo', 'importe': None})
     return acc
 
+def _hoja_acciones(wb, acciones):
+    if 'ACCIONES_CEGID' in wb.sheetnames: del wb['ACCIONES_CEGID']
+    aw = wb.create_sheet('ACCIONES_CEGID')
+    aw.append(['ANTES DE IMPORTAR EN CEGID — hacer en este orden'])
+    aw.append([])
+    aw.append(['1) TERCEROS A CREAR'])
+    aw.append(['Codigo', 'Nombre', 'Tipo', 'NIF', 'Nº movs'])
+    for t in acciones.get('terceros_crear', []):
+        aw.append([t['codigo'], t['nombre'], t['tipo'], t['nif'], t['n_movimientos']])
+    aw.append([])
+    aw.append(['2) SUBCUENTAS A CREAR (no existen en el plan)'])
+    aw.append(['Codigo', 'Nombre'])
+    for s in acciones.get('subcuentas_crear', []):
+        aw.append([s['codigo'], s['nombre']])
+    aw.append([])
+    aw.append(['3) AVISOS (revisar antes de importar)'])
+    aw.append(['Fila', 'Motivo', 'Importe'])
+    for a in acciones.get('avisos', []):
+        aw.append([a['idx'], a['motivo'], a['importe']])
+    for col, w in zip('ABCDE', (16, 40, 12, 16, 10)):
+        aw.column_dimensions[col].width = w
+
 def _hoja_cegid(wb, df, resultados):
     if 'CEGID' in wb.sheetnames: del wb['CEGID']
     cg = wb.create_sheet('CEGID')
@@ -603,7 +625,7 @@ def _hoja_cegid(wb, df, resultados):
     for col, w in zip('ABCD', (14, 50, 14, 16)):
         cg.column_dimensions[col].width = w
 
-def generar_excel(df, resultados, extracto_path, output_path):
+def generar_excel(df, resultados, extracto_path, output_path, acciones=None):
     # Intentar cargar el original; si falla, crear nuevo
     try:
         wb = load_workbook(extracto_path)
@@ -688,6 +710,8 @@ def generar_excel(df, resultados, extracto_path, output_path):
                        r['CUENTA'],r['DESCRIPCION'],r['CONFIANZA'],r['JUSTIFICACION']])
     for col in 'ABCDEFGHI': rv.column_dimensions[col].width = 26
     _hoja_cegid(wb, df, resultados)
+    if acciones:
+        _hoja_acciones(wb, acciones)
     wb.save(output_path)
     print(f"Guardado: {output_path}")
 
@@ -798,6 +822,19 @@ def _self_check():
     _acc = detectar_acciones(_df3, _res3, {}, {})
     assert len(_acc['terceros_crear']) == 1
     assert _acc['terceros_crear'][0]['codigo'] == '41000001'
+    # Task 11: hoja ACCIONES_CEGID con los 3 bloques
+    from openpyxl import Workbook as _WB3
+    _wb3 = _WB3()
+    _acc3 = {'terceros_crear':[{'codigo':'41000001','nombre':'FERRETERIA LOPEZ',
+              'tipo':'acreedor','nif':'(pendiente)','n_movimientos':2}],
+             'subcuentas_crear':[{'codigo':'62800000','nombre':'SUMINISTROS'}],
+             'avisos':[{'idx':3,'motivo':'Sin beneficiario','importe':-9.0}]}
+    _hoja_acciones(_wb3, _acc3)
+    _wsa = _wb3['ACCIONES_CEGID']
+    _textos = [str(c.value) for r in _wsa.iter_rows() for c in r if c.value]
+    assert any('FERRETERIA LOPEZ' in t for t in _textos)
+    assert any('62800000' in t for t in _textos)
+    assert any('TERCEROS A CREAR' in t.upper() for t in _textos)
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
