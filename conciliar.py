@@ -715,6 +715,69 @@ def generar_excel(df, resultados, extracto_path, output_path, acciones=None):
     wb.save(output_path)
     print(f"Guardado: {output_path}")
 
+# ── LOTE MULTI-EMPRESA ────────────────────────────────────────────────────────
+def _clasificar_nombres(nombres):
+    """Reparte una lista de nombres de fichero en mayor / plan / extractos."""
+    roles = {'mayor': None, 'plan': None, 'extractos': []}
+    for n in nombres:
+        low = n.lower()
+        ext = low.rsplit('.', 1)[-1] if '.' in low else ''
+        if ext not in ('xlsx', 'xls', 'csv', 'pdf'):
+            continue
+        if 'mayor' in low and roles['mayor'] is None:
+            roles['mayor'] = n
+        elif ('plan' in low or 'cuenta' in low) and roles['plan'] is None:
+            roles['plan'] = n
+        else:
+            roles['extractos'].append(n)
+    return roles
+
+def _detectar_ficheros_empresa(carpeta):
+    roles = _clasificar_nombres(sorted(os.listdir(carpeta)))
+    j = lambda x: os.path.join(carpeta, x) if x else None
+    return {'mayor': j(roles['mayor']), 'plan': j(roles['plan']),
+            'extractos': [j(e) for e in roles['extractos']]}
+
+def generar_informe(carpeta_madre, resumen):  # stub, se completa en Task 13
+    pass
+
+def procesar_lote(carpeta_madre):
+    resumen = []
+    for nombre in sorted(os.listdir(carpeta_madre)):
+        sub = os.path.join(carpeta_madre, nombre)
+        if not os.path.isdir(sub):
+            continue
+        fich = _detectar_ficheros_empresa(sub)
+        if not fich['mayor'] or not fich['plan'] or not fich['extractos']:
+            print(f"SALTO {nombre}: falta mayor/plan/extracto")
+            continue
+        terceros = cargar_lm(fich['mayor'])
+        pgc = cargar_pgc(fich['plan'])
+        criterios = cargar_criterios(sub)
+        # unir todos los bancos con columna BANCO
+        dfs = []
+        for ext in fich['extractos']:
+            d = cargar_extracto(ext)
+            d['BANCO'] = os.path.splitext(os.path.basename(ext))[0]
+            dfs.append(d)
+        df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+        if df.empty:
+            print(f"SALTO {nombre}: extracto vacío")
+            continue
+        res = conciliar(df, terceros, pgc, criterios)
+        acciones = detectar_acciones(df, res, terceros, pgc)
+        salida = os.path.join(sub, f"{nombre}_conciliado.xlsx")
+        generar_excel(df, res, fich['extractos'][0], salida, acciones)
+        total = len(res)
+        pct = lambda c: sum(1 for r in res if r['CONFIANZA'] == c) / total * 100 if total else 0
+        resumen.append({'empresa': nombre, 'n_mov': total,
+                        'pct_alta': round(pct('ALTA'), 1), 'pct_media': round(pct('MEDIA'), 1),
+                        'n_terceros': len(acciones['terceros_crear']),
+                        'n_avisos': len(acciones['avisos']), 'salida': salida})
+        print(f"OK {nombre}: {total} movs → {salida}")
+    generar_informe(carpeta_madre, resumen)
+    return resumen
+
 # ── SELF-CHECK (verificación de instalación, sin ficheros) ────────────────────
 def _self_check():
     # Parser de importes: formatos español, US y negativos
@@ -835,6 +898,12 @@ def _self_check():
     assert any('FERRETERIA LOPEZ' in t for t in _textos)
     assert any('62800000' in t for t in _textos)
     assert any('TERCEROS A CREAR' in t.upper() for t in _textos)
+    # Task 12: detección de roles de fichero por nombre
+    _res12 = _clasificar_nombres(['LIBRO MAYOR 2025.xlsx','PLAN CONTABLE.xlsx',
+                                  'BBVA movimientos.pdf','CaixaBank.csv'])
+    assert _res12['mayor'] == 'LIBRO MAYOR 2025.xlsx'
+    assert _res12['plan'] == 'PLAN CONTABLE.xlsx'
+    assert set(_res12['extractos']) == {'BBVA movimientos.pdf','CaixaBank.csv'}
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
