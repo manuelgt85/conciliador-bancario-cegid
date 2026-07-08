@@ -466,6 +466,15 @@ def marcar_retrocesiones(df, resultados):
             usados.add(ia); usados.add(ib)
             break
 
+def validar_saldo(df):
+    """Índices i donde saldo[i] != saldo[i+1] + importe[i] (orden descendente, tol 0,02)."""
+    roturas = []
+    for i in range(len(df) - 1):
+        esperado = float(df['SALDO'].iloc[i+1]) + float(df['IMPORTE'].iloc[i])
+        if abs(esperado - float(df['SALDO'].iloc[i])) > 0.02:
+            roturas.append(i)
+    return roturas
+
 def generar_excel(df, resultados, extracto_path, output_path):
     # Intentar cargar el original; si falla, crear nuevo
     try:
@@ -618,6 +627,11 @@ def _self_check():
             {'idx':1,'CUENTA':'Y','DESCRIPCION':'','CONFIANZA':'BAJA','JUSTIFICACION':'','METODO':'y'}]
     marcar_retrocesiones(_df, _res)
     assert _res[0]['CUENTA'] == '55500000' and _res[1]['CUENTA'] == '55500000'
+    # Task 7: validar_saldo detecta roturas
+    _ok = pd.DataFrame([{'IMPORTE':-10.0,'SALDO':90.0},{'IMPORTE':-5.0,'SALDO':100.0}])
+    assert validar_saldo(_ok) == []          # 90 == 100 + (-10)
+    _bad = pd.DataFrame([{'IMPORTE':-10.0,'SALDO':80.0},{'IMPORTE':-5.0,'SALDO':100.0}])
+    assert validar_saldo(_bad) == [0]        # 80 != 100 + (-10)
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
