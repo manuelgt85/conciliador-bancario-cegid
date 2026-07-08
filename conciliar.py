@@ -738,8 +738,24 @@ def _detectar_ficheros_empresa(carpeta):
     return {'mayor': j(roles['mayor']), 'plan': j(roles['plan']),
             'extractos': [j(e) for e in roles['extractos']]}
 
-def generar_informe(carpeta_madre, resumen):  # stub, se completa en Task 13
-    pass
+def generar_informe(carpeta_madre, resumen):
+    fecha = datetime.now().strftime('%Y%m%d')
+    ruta = os.path.join(carpeta_madre, f"INFORME_{fecha}.md")
+    lineas = [f"# Informe de conciliación — {datetime.now().strftime('%d/%m/%Y %H:%M')}", "",
+              "| Empresa | Movs | % ALTA | % MEDIA | Terceros a crear | Avisos |",
+              "|---|---:|---:|---:|---:|---:|"]
+    for r in resumen:
+        lineas.append(f"| {r['empresa']} | {r['n_mov']} | {r['pct_alta']} | "
+                      f"{r['pct_media']} | {r['n_terceros']} | {r['n_avisos']} |")
+    lineas += ["", "## Orden de trabajo", ""]
+    for r in resumen:
+        if r['n_terceros'] or r['n_avisos']:
+            lineas.append(f"- **{r['empresa']}**: crear {r['n_terceros']} tercero(s), "
+                          f"revisar {r['n_avisos']} aviso(s) — ver hoja ACCIONES_CEGID de "
+                          f"`{os.path.basename(r['salida'])}`")
+    with open(ruta, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lineas) + '\n')
+    return ruta
 
 def procesar_lote(carpeta_madre):
     resumen = []
@@ -904,6 +920,13 @@ def _self_check():
     assert _res12['mayor'] == 'LIBRO MAYOR 2025.xlsx'
     assert _res12['plan'] == 'PLAN CONTABLE.xlsx'
     assert set(_res12['extractos']) == {'BBVA movimientos.pdf','CaixaBank.csv'}
+    # Task 13: informe global se escribe y contiene la fila de empresa
+    _dir = tempfile.mkdtemp()
+    _ruta = generar_informe(_dir, [{'empresa':'AMAYA','n_mov':100,'pct_alta':80.0,
+        'pct_media':15.0,'n_terceros':3,'n_avisos':2,'salida':'x.xlsx'}])
+    _txt = open(_ruta, encoding='utf-8').read()
+    assert 'AMAYA' in _txt and '80.0' in _txt
+    _os.remove(_ruta)
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
