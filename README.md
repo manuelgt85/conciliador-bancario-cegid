@@ -32,11 +32,17 @@ Claude te pedirá los **tres ficheros**: extracto bancario, libro mayor y plan d
 conciliación — no se guarda en este repo. El `.gitignore` está configurado para no
 subir nunca `.xlsx`, `.csv`, `.pdf` ni imágenes.
 
+**Modo lote (varias empresas):** una `carpeta_madre/` con una subcarpeta por empresa
+(cada una con su extracto/s, `MAYOR` y `PLAN`; varios bancos = varios extractos). Fija
+`CARPETA_MADRE` en `conciliar.py`: genera un Excel por empresa (con hojas `CEGID` y
+`ACCIONES_CEGID`) y un `INFORME_YYYYMMDD.md` global. Extractos en PDF soportados. Cada
+empresa puede llevar un `criterios.json` (no se versiona) con alias y cuentas por defecto.
+
 ## Contenido
 
 - `SKILL.md` — el procedimiento que ejecuta Claude Code.
 - `conciliar.py` — toda la lógica (parser, auto-detección de formato, matching con el
   libro mayor, reglas de clasificación PGC). Incluye self-check.
-- `requirements.txt` — dependencias Python (openpyxl, pandas, python-dateutil).
+- `requirements.txt` — dependencias Python (openpyxl, pandas, python-dateutil, pdfplumber).
 
 **Este repositorio no contiene datos de clientes.**

@@ -120,6 +120,29 @@ Conciliar de verdad (con los tres ficheros y las rutas ya ajustadas):
 python conciliar.py        # genera OUTPUT_PATH e imprime el reparto ALTA/MEDIA/BAJA/REVISAR
 ```
 
+## Modo lote (varias empresas)
+
+Estructura de entrada: `carpeta_madre/<empresa>/` con, en cada subcarpeta, su(s)
+extracto(s) (varios bancos = varios ficheros), su `MAYOR` y su `PLAN`. Autodetección por
+nombre (`*mayor*`, `*plan*`/`*cuentas*`, resto → extractos; formatos `.xlsx/.xls/.csv/.pdf`).
+
+Opcional por empresa: un `criterios.json` (alias marca→cuenta, `cuenta_ventas_tpv`,
+`cuenta_prl`, `match_por_importe`…) que evita repreguntar criterios ya tomados.
+
+Ejecutar: fijar `CARPETA_MADRE` en la CONFIGURACIÓN de `conciliar.py` y `python conciliar.py`.
+
+Salida por empresa: `<empresa>_conciliado.xlsx` con hojas
+`Historico + RESUMEN + REVISAR + CEGID + ACCIONES_CEGID`. Global: `INFORME_YYYYMMDD.md`.
+Tras el lote, Claude presenta **una sola ronda** de dudas de alto impacto (`dudas_alto_impacto`).
+
+### Cascada actualizada
+`ALIAS (criterios) → observaciones (R_OBS) → socios → LM por nombre → LM por importe →
+excepciones → acreedor genérico`. El match por importe solo asigna si el candidato es único.
+
+### Soporte PDF
+Extractos en PDF (BBVA) se leen con `pdfplumber`; tras cargar se ejecuta un check de
+continuidad de saldo que avisa si falta/sobra algún movimiento.
+
 ---
 
 ## Adaptaciones por cliente
