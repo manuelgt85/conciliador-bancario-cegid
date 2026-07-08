@@ -68,7 +68,69 @@ def _smart_float(val):
     try: return float(s)
     except: return 0.0
 
+_NUM_PDF = re.compile(
+    r'^(\d{2}/\d{2}/\d{4})\s+(\d{2}/\d{2}/\d{4})\s+(\d{4,5})'
+    r'(?:\s+(.+?))??\s+(-?[\d\.]*,\d{1,2})\s+EUR\s+(-?[\d\.]*,\d{1,2})\s+EUR\s*$')
+_SKIP_PDF = ('Movimientos','Titular ','Cuenta ES','Divisa ','Banco BANCO','F. CONTABLE','F.CONTABLE')
+
+def _norm_pdf(t):
+    import unicodedata
+    if not t: return ''
+    t = unicodedata.normalize('NFD', str(t)).encode('ascii','ignore').decode('ascii')
+    return re.sub(r'\s+', ' ', t).strip()
+
+def _parsear_movimientos_pdf(lineas):
+    """lineas: list[(page, top, text)] ya filtradas. Devuelve list[dict] estándar."""
+    # clustering por salto vertical (>18 = nuevo movimiento); corta también al cambiar de página
+    movs, cur, pp, pt = [], [], None, None
+    for pi, t, txt in lineas:
+        if cur and (pi != pp or pt is None or t - pt > 18):
+            movs.append(cur); cur = []
+        cur.append((t, txt)); pp, pt = pi, t
+    if cur: movs.append(cur)
+    rows = []
+    for mv in movs:
+        ni = m = None
+        for i, (_, txt) in enumerate(mv):
+            mm = _NUM_PDF.match(txt)
+            if mm: ni, m = i, mm; break
+        if ni is None: continue
+        fc, fv, cod, cmid, imp, saldo = m.groups()
+        head = _norm_pdf(' '.join(txt for _, txt in mv[:ni]) + (' ' + cmid if cmid else ''))
+        obs = _norm_pdf(' '.join(txt for _, txt in mv[ni+1:]))
+        conc, benef = (head.split('|', 1) + [''])[:2] if '|' in head else (head, '')
+        rows.append({'F_CONTABLE': fc, 'F_VALOR': fv, 'CODIGO': cod,
+                     'CONCEPTO': _norm_pdf(conc), 'BENEFICIARIO': _norm_pdf(benef),
+                     'OBSERVACIONES': obs, 'IMPORTE': _smart_float(imp),
+                     'SALDO': _smart_float(saldo)})
+    return rows
+
+def cargar_extracto_pdf(path):
+    import pdfplumber
+    from collections import defaultdict
+    lineas = []
+    with pdfplumber.open(path) as pdf:
+        for pi, pg in enumerate(pdf.pages):
+            grp = defaultdict(list)
+            for w in pg.extract_words(use_text_flow=False, keep_blank_chars=False):
+                grp[round(w['top'])].append(w)
+            for t in sorted(grp):
+                txt = ' '.join(w['text'] for w in sorted(grp[t], key=lambda x: x['x0']))
+                if re.match(r'^\d+/\d+$', txt): continue
+                if any(txt.startswith(s) for s in _SKIP_PDF): continue
+                lineas.append((pi, t, txt))
+    rows = _parsear_movimientos_pdf(lineas)
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(
+        columns=['F_CONTABLE','F_VALOR','CODIGO','CONCEPTO','BENEFICIARIO',
+                 'OBSERVACIONES','IMPORTE','SALDO'])
+    roturas = validar_saldo(df)
+    if roturas:
+        print(f"AVISO: {len(roturas)} posible(s) rotura(s) de saldo en el PDF (filas {roturas[:10]}...)")
+    return df
+
 def cargar_extracto(path, fecha_desde=None, fecha_hasta=None):
+    if path.lower().endswith('.pdf'):
+        return cargar_extracto_pdf(path)   # el filtro de fechas se aplica aguas arriba si hace falta
     import unicodedata, shutil
     # Si el fichero es CSV pero contiene XLSX (CaixaBank), renombrar
     tmp = path
@@ -632,6 +694,19 @@ def _self_check():
     assert validar_saldo(_ok) == []          # 90 == 100 + (-10)
     _bad = pd.DataFrame([{'IMPORTE':-10.0,'SALDO':80.0},{'IMPORTE':-5.0,'SALDO':100.0}])
     assert validar_saldo(_bad) == [0]        # 80 != 100 + (-10)
+    # Task 8: parser PDF sobre líneas sintéticas BBVA (concepto|beneficiario arriba, obs abajo)
+    _lineas = [
+        (0, 10.0, "PAGO NOMINA | JUAN PEREZ"),
+        (0, 20.0, "05/06/2025 05/06/2025 1234 -1.200,00 EUR 3.800,00 EUR"),
+        (0, 30.0, "TRANSFERENCIA NOMINA JUNIO"),
+        (0, 60.0, "COMPRA TARJETA | MERCADONA"),           # gap 30 > 18 → nuevo movimiento
+        (0, 70.0, "06/06/2025 06/06/2025 5678 -45,20 EUR 3.754,80 EUR"),
+    ]
+    _movs = _parsear_movimientos_pdf(_lineas)
+    assert len(_movs) == 2
+    assert _movs[0]['IMPORTE'] == -1200.0 and _movs[0]['BENEFICIARIO'] == 'JUAN PEREZ'
+    assert _movs[0]['CONCEPTO'] == 'PAGO NOMINA'
+    assert _movs[1]['IMPORTE'] == -45.2 and _movs[1]['CONCEPTO'] == 'COMPRA TARJETA'
     print("self-check OK")
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────

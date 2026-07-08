@@ -1,4 +1,5 @@
 openpyxl
 pandas
 python-dateutil
+pdfplumber
 # anthropic  # opcional: solo si se define API_KEY para refinar acreedores genéricos
