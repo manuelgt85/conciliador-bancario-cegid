@@ -1,0 +1,22 @@
+[project]
+name = "conciliador-bancario-cegid"
+version = "0.1.0"
+description = "Concilia extractos bancarios contra el libro mayor y el plan de cuentas de Cegid Diez"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openpyxl",
+    "pandas",
+    "python-dateutil",
+    "pdfplumber",
+]
+
+# `conciliar.py` esta suelto en la raiz: se publica como modulo, no como paquete, para que
+# `import conciliar` siga funcionando igual que cuando se ejecuta el script a mano.
+[tool.hatch.build.targets.wheel]
+only-include = ["conciliar.py"]
+sources = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
